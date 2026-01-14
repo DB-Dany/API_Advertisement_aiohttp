@@ -1,3 +1,5 @@
-aiohttp==3.11.12
-python-dotenv==1.0.1
-asyncpg==0.30.0
+aiohttp
+asyncpg
+python-dotenv
+bcrypt
+PyJWT

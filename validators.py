@@ -1,8 +1,8 @@
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
+import re
 
 
 class ValidationError(Exception):
-    """Ошибка валидации входных данных."""
     def __init__(self, errors: Dict[str, str]):
         super().__init__("Validation error")
         self.errors = errors
@@ -12,16 +12,36 @@ def _not_empty(value: Any) -> bool:
     return isinstance(value, str) and value.strip() != ""
 
 
-def validate_create(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Валидация создания объявления.
-    Требуются поля: title, description, owner.
-    """
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def validate_register(payload: Dict[str, Any]) -> Dict[str, str]:
+    errors: Dict[str, str] = {}
+    email = payload.get("email")
+    password = payload.get("password")
+
+    if not _not_empty(email) or not EMAIL_RE.match(email.strip()):
+        errors["email"] = "Invalid email"
+
+    if not _not_empty(password) or len(password.strip()) < 6:
+        errors["password"] = "Password must be at least 6 characters"
+
+    if errors:
+        raise ValidationError(errors)
+
+    return {"email": email.strip().lower(), "password": password}
+
+
+def validate_login(payload: Dict[str, Any]) -> Dict[str, str]:
+    # По сути та же валидация, что и register
+    return validate_register(payload)
+
+
+def validate_create_ad(payload: Dict[str, Any]) -> Dict[str, Any]:
     errors: Dict[str, str] = {}
 
     title = payload.get("title")
     description = payload.get("description")
-    owner = payload.get("owner")
 
     if not _not_empty(title):
         errors["title"] = "Field cannot be empty"
@@ -31,28 +51,14 @@ def validate_create(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not _not_empty(description):
         errors["description"] = "Field cannot be empty"
 
-    if not _not_empty(owner):
-        errors["owner"] = "Field cannot be empty"
-    elif len(owner.strip()) > 100:
-        errors["owner"] = "Max length is 100"
-
     if errors:
         raise ValidationError(errors)
 
-    return {
-        "title": title.strip(),
-        "description": description.strip(),
-        "owner": owner.strip(),
-    }
+    return {"title": title.strip(), "description": description.strip()}
 
 
-def validate_update(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Валидация обновления объявления (частичное обновление).
-    Разрешены поля: title, description, owner.
-    Хотя бы одно поле должно присутствовать.
-    """
-    allowed = {"title", "description", "owner"}
+def validate_update_ad(payload: Dict[str, Any]) -> Dict[str, Any]:
+    allowed = {"title", "description"}
     data = {k: v for k, v in payload.items() if k in allowed}
 
     if not data:
@@ -63,9 +69,7 @@ def validate_update(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if "title" in data:
         v = data["title"]
-        if v is None:
-            pass
-        elif not _not_empty(v):
+        if v is None or not _not_empty(v):
             errors["title"] = "Field cannot be empty"
         else:
             v = v.strip()
@@ -76,60 +80,18 @@ def validate_update(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if "description" in data:
         v = data["description"]
-        if v is None:
-            pass
-        elif not _not_empty(v):
+        if v is None or not _not_empty(v):
             errors["description"] = "Field cannot be empty"
         else:
             out["description"] = v.strip()
 
-    if "owner" in data:
-        v = data["owner"]
-        if v is None:
-            pass
-        elif not _not_empty(v):
-            errors["owner"] = "Field cannot be empty"
-        else:
-            v = v.strip()
-            if len(v) > 100:
-                errors["owner"] = "Max length is 100"
-            else:
-                out["owner"] = v
-
     if errors:
         raise ValidationError(errors)
-
-    if not out:
-        raise ValidationError({"_": "No valid fields to update"})
 
     return out
 
 
 def parse_pagination(query: Dict[str, str]) -> tuple[int, int]:
-    """
-    Защита от переполнения памяти:
-    - limit по умолчанию 50, максимум 200
-    - offset по умолчанию 0
-    """
+    # Защита от OOM: ограничиваем limit
     limit_default = 50
     limit_max = 200
-
-    def to_int(value: str | None, default: int) -> int:
-        if value is None:
-            return default
-        try:
-            return int(value)
-        except ValueError:
-            return default
-
-    limit = to_int(query.get("limit"), limit_default)
-    offset = to_int(query.get("offset"), 0)
-
-    if limit < 1:
-        limit = limit_default
-    if limit > limit_max:
-        limit = limit_max
-    if offset < 0:
-        offset = 0
-
-    return limit, offset
